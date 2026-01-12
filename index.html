@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="hu">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gázfogyasztás napló</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; margin: 24px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+    .card { border: 1px solid #ddd; border-radius: 12px; padding: 14px; }
+    label { display:block; margin-top: 8px; font-size: 14px; }
+    input { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 8px; }
+    button { margin-top: 12px; padding: 10px 12px; border-radius: 10px; border: 1px solid #333; background: #fff; cursor: pointer; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th, td { border-bottom: 1px solid #eee; padding: 8px; text-align: left; font-size: 14px; vertical-align: top; }
+    th { background: #fafafa; }
+    .small { font-size: 12px; color: #666; }
+    .right { text-align:right; }
+    .pill { display:inline-block; padding: 2px 8px; border:1px solid #ddd; border-radius: 999px; font-size: 12px; }
+    .ok { border-color:#2ecc71; background:#f3fff7; }
+    .warn { border-color:#f1c40f; background:#fffbea; }
+    .danger { border-color:#e74c3c; background:#fff5f5; }
+    .error { border: 1px solid #e74c3c; background:#fff5f5; border-radius: 12px; padding: 10px 12px; margin-top: 14px; }
+  </style>
+</head>
+<body>
+  <h1>Gázfogyasztás napló</h1>
+  <p class="small">Energiadíj számítás (kedvezményes + piaci). Rendszerhasználat/alapdíj/ÁFA nincs benne.</p>
+
+  {% if error %}
+    <div class="error">
+      <b>Hiba:</b> {{ error }}
+    </div>
+  {% endif %}
+
+  {% if last_calc %}
+  <div class="card" style="margin-top:14px">
+    <h3>Legutóbbi számítás eredménye</h3>
+    <div class="small">
+      Időszak: <b>{{ last_calc.start_date }}</b> – <b>{{ last_calc.end_date }}</b> ({{ last_calc.days }} nap)
+    </div>
+    <div style="margin-top:8px">
+      Fogyasztás: <b>{{ "%.3f"|format(last_calc.used_m3) }}</b> m³ |
+      <b>{{ "%.0f"|format(last_calc.used_mj) }}</b> MJ
+    </div>
+    {% set ratio = (last_calc.market_mj / last_calc.used_mj) if last_calc.used_mj else 0 %}
+    <div style="margin-top:8px">
+      Kedvezményes: <b>{{ "%.0f"|format(last_calc.discount_mj) }}</b> MJ,
+      Piaci: <b>{{ "%.0f"|format(last_calc.market_mj) }}</b> MJ
+      {% if ratio == 0 %}
+        <span class="pill ok">Piaci: 0%</span>
+      {% elif ratio < 0.5 %}
+        <span class="pill warn">Piaci: {{ (ratio*100)|round(1) }}%</span>
+      {% else %}
+        <span class="pill danger">Piaci: {{ (ratio*100)|round(1) }}%</span>
+      {% endif %}
+    </div>
+    <div style="margin-top:8px">
+      Energiadíj: <b>{{ "{:,.0f}".format(last_calc.total_energy_cost).replace(",", " ") }}</b> Ft
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="grid" style="margin-top:14px">
+    <div class="card">
+      <h3>Leolvasás rögzítése</h3>
+      <form method="post" action="/add-reading">
+        <label>Dátum</label>
+        <input type="date" name="reading_date" required>
+
+        <label>Óraállás (m³)</label>
+        <input type="number" step="0.001" name="meter_m3" required>
+
+        <label>Megjegyzés</label>
+        <input type="text" name="note" placeholder="pl. diktálás">
+
+        <button type="submit">Mentés</button>
+      </form>
+
+      <p style="margin-top:12px">
+        <a href="/static/chart.html">📈 Grafikon</a>
+      </p>
+    </div>
+
+    <div class="card">
+      <h3>Időszak számítása</h3>
+      <form method="post" action="/compute">
+        <label>Kezdő dátum</label>
+        <input type="date" name="start_date" required>
+
+        <label>Záró dátum</label>
+        <input type="date" name="end_date" required>
+
+        <label>Kezdő óraállás (m³)</label>
+        <input type="number" step="0.001" name="start_m3" required>
+
+        <label>Záró óraállás (m³)</label>
+        <input type="number" step="0.001" name="end_m3" required>
+
+        <label>Átváltás (MJ/m³)</label>
+        <input type="number" step="0.01" name="mj_per_m3" value="{{ defaults.mj_per_m3 }}">
+
+        <label>Kedvezményes ár (Ft/MJ)</label>
+        <input type="number" step="0.0001" name="price_discount" value="{{ defaults.price_discount }}">
+
+        <label>Piaci ár (Ft/MJ)</label>
+        <input type="number" step="0.0001" name="price_market" value="{{ defaults.price_market }}">
+
+        <label>Éves kedvezményes keret (MJ)</label>
+        <input type="number" step="1" name="annual_quota_mj" value="{{ defaults.annual_quota_mj }}">
+
+        <button type="submit">Számítás és mentés</button>
+      </form>
+<hr style="margin:14px 0; border:none; border-top:1px solid #eee">
+
+<form method="post" action="/compute-latest">
+  <button type="submit" style="width:100%">
+    Számítás az utolsó 2 leolvasásból
+  </button>
+</form>
+
+<p class="small" style="margin-top:8px">
+  Tipp: rögzíts két leolvasást (pl. tegnap és ma), és itt egy kattintással kész a számítás.
+</p>
+
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:18px">
+    <h3>Leolvasások</h3>
+    <table>
+      <thead>
+        <tr><th>Dátum</th><th class="right">Óraállás (m³)</th><th>Megjegyzés</th></tr>
+      </thead>
+      <tbody>
+      {% if readings and readings|length > 0 %}
+        {% for r in readings %}
+          <tr>
+            <td>{{ r.reading_date }}</td>
+            <td class="right">{{ "%.3f"|format(r.meter_m3) }}</td>
+            <td>{{ r.note or "" }}</td>
+          </tr>
+        {% endfor %}
+      {% else %}
+        <tr><td colspan="3" class="small">Még nincs leolvasás rögzítve.</td></tr>
+      {% endif %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card" style="margin-top:18px">
+    <h3>Mentett időszak-számítások</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>Időszak</th>
+          <th class="right">Nap</th>
+          <th class="right">m³</th>
+          <th class="right">MJ</th>
+          <th class="right">Kedv. MJ</th>
+          <th class="right">Piaci MJ</th>
+          <th class="right">Összes energiadíj</th>
+          <th class="right">Piaci %</th>
+				 <th class="right">Művelet</th>
+	
+        </tr>
+      </thead>
+      <tbody>
+      {% if calcs and calcs|length > 0 %}
+        {% for c in calcs %}
+          {% set ratio = (c.market_mj / c.used_mj) if c.used_mj else 0 %}
+          <tr>
+            <td>{{ c.start_date }} – {{ c.end_date }}</td>
+            <td class="right">{{ c.days }}</td>
+            <td class="right">{{ "%.3f"|format(c.used_m3) }}</td>
+            <td class="right">{{ "%.0f"|format(c.used_mj) }}</td>
+            <td class="right">{{ "%.0f"|format(c.discount_mj) }}</td>
+            <td class="right">{{ "%.0f"|format(c.market_mj) }}</td>
+            <td class="right"><b>{{ "{:,.0f}".format(c.total_energy_cost).replace(",", " ") }}</b> Ft</td>
+            <td class="right">
+              {% if ratio == 0 %}
+                <span class="pill ok">0%</span>
+              {% elif ratio < 0.5 %}
+                <span class="pill warn">{{ (ratio*100)|round(1) }}%</span>
+              {% else %}
+                <span class="pill danger">{{ (ratio*100)|round(1) }}%</span>
+              {% endif %}
+<td class="right">
+  <form method="post" action="/delete-calc" onsubmit="return confirm('Biztosan törlöd?');" style="display:inline">
+    <input type="hidden" name="calc_id" value="{{ c.id }}">
+    <button type="submit">Törlés</button>
+  </form>
+</td>
+
+            </td>
+          </tr>
+        {% endfor %}
+      {% else %}
+        <tr><td colspan="8" class="small">Még nincs mentett számítás.</td></tr>
+<th class="right">Művelet</th>
+      {% endif %}
+      </tbody>
+    </table>
+  </div>
+</body>
+</html>

@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="hu">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Grafikonok</title>
+  <style>
+    body { font-family: system-ui; margin: 24px; }
+    .small { color:#666; font-size: 12px; }
+    .err { border:1px solid #e74c3c; background:#fff5f5; padding:10px 12px; border-radius: 12px; max-width: 1000px; }
+    .card { border: 1px solid #ddd; border-radius: 12px; padding: 14px; max-width: 1000px; margin-bottom: 16px; }
+    canvas { border: 1px solid #ddd; border-radius: 12px; width: 100%; max-width: 1000px; height: 420px; display:block; }
+    h2 { margin: 0 0 6px 0; font-size: 18px; }
+  </style>
+</head>
+<body>
+  <h1>Grafikonok</h1>
+  <p class="small">1) Óraállások (m³) &nbsp;&nbsp; 2) Mentett időszakok energiadíja (Ft)</p>
+
+  <div class="card">
+    <h2>1) Leolvasások (óraállás, m³)</h2>
+    <div id="msg1" class="small"></div>
+    <canvas id="c1" width="1000" height="420"></canvas>
+  </div>
+
+  <div class="card">
+    <h2>2) Időszakok energiadíja (Ft)</h2>
+    <div id="msg2" class="small"></div>
+    <canvas id="c2" width="1000" height="420"></canvas>
+    <p class="small" style="margin-top:8px">
+      Tipp: ha még üres, ments el legalább 1 „Időszak számítást” a főoldalon.
+    </p>
+  </div>
+
+  <p><a href="/">← Vissza</a></p>
+
+<script>
+function clearAndText(ctx, text) {
+  ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+  ctx.fillStyle = "#000";
+  ctx.fillText(text, 20, 40);
+}
+
+function showError(el, text) {
+  el.className = "err";
+  el.textContent = text;
+}
+
+function drawLineChart(canvas, labelEl, points, valueKey, unitLabel) {
+  const ctx = canvas.getContext("2d");
+  if (!points.length) {
+    labelEl.textContent = "Nincs adat.";
+    clearAndText(ctx, "Nincs adat.");
+    return;
+  }
+
+  const values = points.map(p => Number(p[valueKey]));
+  const minY = Math.min(...values);
+  const maxY = Math.max(...values);
+
+  const pad = 50;
+  const w = canvas.width - pad*2;
+  const h = canvas.height - pad*2;
+
+  const y = v => pad + (1 - (v - minY)/((maxY - minY)||1)) * h;
+
+  let x;
+  if (points.length === 1) {
+    x = () => pad + w/2;
+    labelEl.textContent = "1 adatpont – pontként jelenik meg.";
+  } else {
+    x = i => pad + (i/(points.length-1)) * w;
+    labelEl.textContent = `${points.length} adatpont – vonalgrafikon.`;
+  }
+
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  // axes
+  ctx.strokeStyle = "#444";
+  ctx.beginPath();
+  ctx.moveTo(pad, pad);
+  ctx.lineTo(pad, pad+h);
+  ctx.lineTo(pad+w, pad+h);
+  ctx.stroke();
+
+  // line
+  if (points.length >= 2) {
+    ctx.strokeStyle = "#111";
+    ctx.beginPath();
+    points.forEach((p,i) => {
+      const px = x(i), py = y(Number(p[valueKey]));
+      if (i===0) ctx.moveTo(px,py); else ctx.lineTo(px,py);
+    });
+    ctx.stroke();
+  }
+
+  // points
+  ctx.fillStyle = "#111";
+  points.forEach((p,i) => {
+    const px = (points.length===1) ? x() : x(i);
+    const py = y(Number(p[valueKey]));
+    ctx.beginPath();
+    ctx.arc(px, py, 4, 0, Math.PI*2);
+    ctx.fill();
+  });
+
+  // labels
+  ctx.fillStyle = "#000";
+  ctx.fillText(`min: ${minY.toFixed(2)} ${unitLabel}`, pad, pad-15);
+  ctx.fillText(`max: ${maxY.toFixed(2)} ${unitLabel}`, pad+200, pad-15);
+}
+
+function drawBarChart(canvas, labelEl, items, valueKey, xLabelKey, unitLabel) {
+  const ctx = canvas.getContext("2d");
+
+  if (!items.length) {
+    labelEl.textContent = "Nincs mentett időszak.";
+    clearAndText(ctx, "Nincs mentett időszak.");
+    return;
+  }
+
+  const values = items.map(d => Number(d[valueKey]));
+  const maxV = Math.max(...values);
+  const minV = Math.min(...values);
+
+  const pad = 60;
+  const w = canvas.width - pad*2;
+  const h = canvas.height - pad*2;
+
+  // sávok közti tér
+  const gap = 10;
+  const barW = Math.max(8, (w - gap*(items.length-1)) / items.length);
+
+  const x = i => pad + i*(barW + gap);
+  const y = v => pad + (1 - v/((maxV)||1)) * h;
+  const barH = v => (v/((maxV)||1)) * h;
+
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  // axes
+  ctx.strokeStyle = "#444";
+  ctx.beginPath();
+  ctx.moveTo(pad, pad);
+  ctx.lineTo(pad, pad+h);
+  ctx.lineTo(pad+w, pad+h);
+  ctx.stroke();
+
+  // bars
+  ctx.fillStyle = "#111";
+  items.forEach((d,i) => {
+    const v = Number(d[valueKey]);
+    const bx = x(i);
+    const by = y(v);
+    const bh = barH(v);
+    ctx.fillRect(bx, by, barW, bh);
+  });
+
+  // x labels (end_date)
+  ctx.fillStyle = "#000";
+  ctx.font = "12px system-ui";
+  const step = items.length > 12 ? Math.ceil(items.length/12) : 1;
+  items.forEach((d,i) => {
+    if (i % step !== 0) return;
+    const lbl = String(d[xLabelKey]).slice(0, 10);
+    const bx = x(i) + barW/2;
+    ctx.save();
+    ctx.translate(bx, pad+h+14);
+    ctx.rotate(-Math.PI/6);
+    ctx.textAlign = "center";
+    ctx.fillText(lbl, 0, 0);
+    ctx.restore();
+  });
+
+  // y labels
+  ctx.fillText(`max: ${maxV.toFixed(0)} ${unitLabel}`, pad, pad-15);
+  ctx.fillText(`min: ${minV.toFixed(0)} ${unitLabel}`, pad+220, pad-15);
+
+  labelEl.textContent = `${items.length} időszak – oszlopdiagram (energíadíj Ft).`;
+}
+
+(async () => {
+  // 1) Readings chart
+  const msg1 = document.getElementById("msg1");
+  const c1 = document.getElementById("c1");
+  try {
+    const res = await fetch("/api/readings");
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const readings = await res.json();
+    if (!Array.isArray(readings)) throw new Error("Nem listát kaptam.");
+    drawLineChart(c1, msg1, readings, "m3", "m³");
+  } catch (e) {
+    showError(msg1, "Nem sikerült lekérni a leolvasásokat (/api/readings). Hiba: " + e.message);
+  }
+
+  // 2) Period costs chart
+  const msg2 = document.getElementById("msg2");
+  const c2 = document.getElementById("c2");
+  try {
+    const res = await fetch("/api/calcs");
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const calcs = await res.json();
+    if (!Array.isArray(calcs)) throw new Error("Nem listát kaptam.");
+    // x: end_date, y: total_energy_cost
+    drawBarChart(c2, msg2, calcs, "total_energy_cost", "end_date", "Ft");
+  } catch (e) {
+    showError(msg2, "Nem sikerült lekérni a számításokat (/api/calcs). Hiba: " + e.message);
+  }
+})();
+</script>
+</body>
+</html>
